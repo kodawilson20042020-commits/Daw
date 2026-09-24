@@ -50,10 +50,15 @@ async function startServer() {
     }
 
     try {
+      const host = allowed.url.hostname.toLowerCase();
+      const youtubeAudio = host.endsWith('googlevideo.com');
       const response = await fetch(allowed.url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; AuraDSP/1.0; AudioEngine)',
-          Accept: 'audio/*, application/octet-stream;q=0.9, */*;q=0.8'
+          'User-Agent': youtubeAudio
+            ? 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Oculus Quest 3) gzip'
+            : 'Mozilla/5.0 (compatible; AuraDSP/1.0; AudioEngine)',
+          Accept: 'audio/*, application/octet-stream;q=0.9, */*;q=0.8',
+          ...(youtubeAudio ? { Referer: 'https://www.youtube.com/', Origin: 'https://www.youtube.com', Range: 'bytes=0-20971519' } : {})
         }
       });
 

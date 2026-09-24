@@ -1,10 +1,10 @@
 /**
  * Turns a pasted share link into a fetchable audio URL.
  *
- * Spotify / Apple Music / Deezer: the platform's own 30-second preview file.
- * YouTube, SoundCloud, TikTok, Tidal, Amazon, Bandcamp: public title, then the
- * closest official store preview (never a full-stream rip).
- * Direct audio URLs (.mp3, .wav, …) pass through unchanged.
+ * YouTube links load that video's own audio track.
+ * Spotify / Apple Music / Deezer use the official 30-second preview.
+ * SoundCloud, TikTok, Tidal, Amazon, and Bandcamp match a public title to a
+ * store preview. Direct audio URLs pass through unchanged.
  */
 
 export type LinkSource =
@@ -471,6 +471,118 @@ async function resolveDirect(base: ResolveResult, url: URL): Promise<ResolveResu
   };
 }
 
+type YtFormat = { url?: string; mimeType?: string; bitrate?: number; contentLength?: string };
+
+function pickYoutubeAudio(formats: YtFormat[]): YtFormat | null {
+  const max = 20 * 1024 * 1024;
+  const fits = formats.filter(
+    (f) => f.url && (f.mimeType || "").startsWith("audio/") && (!f.contentLength || Number(f.contentLength) <= max),
+  );
+  if (!fits.length) return null;
+  fits.sort((a, b) => {
+    const aMp4 = (a.mimeType || "").includes("mp4") ? 0 : 1;
+    const bMp4 = (b.mimeType || "").includes("mp4") ? 0 : 1;
+    if (aMp4 !== bMp4) return aMp4 - bMp4;
+    return Math.abs((a.bitrate || 0) - 128000) - Math.abs((b.bitrate || 0) - 128000);
+  });
+  return fits[0];
+}
+
+async function youtubeAudio(videoId: string): Promise<
+  | { audioUrl: string; title: string; artist: string; thumbnail: string | null; seconds: number | null }
+  | { error: string; title: string; artist: string; thumbnail: string | null }
+> {
+  const clients = [
+    {
+      clientName: "ANDROID_VR",
+      clientVersion: "1.61.48",
+      headerName: "28",
+      userAgent:
+        "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Oculus Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
+      extra: { deviceMake: "Oculus", deviceModel: "Quest 3", osName: "Android", osVersion: "12", androidSdkVersion: 32 },
+    },
+    {
+      clientName: "ANDROID_VR",
+      clientVersion: "1.65.10",
+      headerName: "28",
+      userAgent:
+        "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+      extra: { deviceMake: "Oculus", deviceModel: "Quest 3", osName: "Android", osVersion: "12L", androidSdkVersion: 32 },
+    },
+    {
+      clientName: "IOS",
+      clientVersion: "20.11.3",
+      headerName: "5",
+      userAgent: "com.google.ios.youtube/20.11.3 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X)",
+      extra: { deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iOS", osVersion: "18.2.1.22C161" },
+    },
+  ];
+
+  let title = "";
+  let artist = "";
+  const thumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  let lastBlock = "YouTube did not return an audio track for that video.";
+
+  for (const client of clients) {
+    try {
+      const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": client.userAgent,
+          "X-YouTube-Client-Name": client.headerName,
+          "X-YouTube-Client-Version": client.clientVersion,
+        },
+        body: JSON.stringify({
+          videoId,
+          context: {
+            client: {
+              clientName: client.clientName,
+              clientVersion: client.clientVersion,
+              hl: "en",
+              gl: "US",
+              ...client.extra,
+            },
+          },
+          contentCheckOk: true,
+          racyCheckOk: true,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as {
+        playabilityStatus?: { status?: string; reason?: string };
+        videoDetails?: { title?: string; author?: string; lengthSeconds?: string };
+        streamingData?: { formats?: YtFormat[]; adaptiveFormats?: YtFormat[] };
+      };
+      if (data.videoDetails?.title) title = data.videoDetails.title;
+      if (data.videoDetails?.author) artist = data.videoDetails.author;
+      const formats = [...(data.streamingData?.formats || []), ...(data.streamingData?.adaptiveFormats || [])];
+      const picked = pickYoutubeAudio(formats);
+      if (picked?.url) {
+        const seconds = Number(data.videoDetails?.lengthSeconds);
+        return {
+          audioUrl: picked.url,
+          title: title || "YouTube audio",
+          artist,
+          thumbnail,
+          seconds: Number.isFinite(seconds) ? seconds : null,
+        };
+      }
+      const status = data.playabilityStatus?.status || "";
+      const reason = data.playabilityStatus?.reason || "";
+      if (status === "LOGIN_REQUIRED" || /bot/i.test(reason)) {
+        lastBlock = "YouTube blocked this server from reading that video’s audio. The pad was not filled with a different song.";
+      } else if (reason) lastBlock = reason;
+      else if (status && status !== "OK") lastBlock = `YouTube said ${status.replaceAll("_", " ").toLowerCase()}.`;
+    } catch {
+      /* try the next client */
+    }
+  }
+
+  return { error: lastBlock, title, artist, thumbnail };
+}
+
 export async function resolveMediaLink(input: string): Promise<ResolveResult> {
   const extracted = extractUrl(input);
   if (!extracted) {
@@ -586,32 +698,29 @@ async function resolveClassified(
     const id = youtubeId(url);
     if (!id) return { ...base, error: "Could not read a YouTube video id from that link." };
     const watch = `https://www.youtube.com/watch?v=${id}`;
-    const meta = await oembed(`https://www.youtube.com/oembed?url=${encodeURIComponent(watch)}&format=json`);
-    if (!meta) return { ...base, canonicalUrl: watch, error: "YouTube did not return a title for that video." };
-    const parsed = cleanTitle(meta.title);
-    const query = [parsed.artist || meta.author, parsed.title].filter(Boolean).join(" ");
-    const { best, alt } = pickHits(await searchPreviews(query));
-    if (!best) {
+    const audio = await youtubeAudio(id);
+    if ("audioUrl" in audio) {
       return {
         ...base,
+        ok: true,
         canonicalUrl: watch,
-        title: parsed.title || meta.title,
-        artist: parsed.artist || meta.author,
-        thumbnail: meta.thumbnail,
-        error: `No store preview matched “${meta.title}”. YouTube does not provide a raw audio file.`,
+        title: audio.title,
+        artist: audio.artist,
+        thumbnail: audio.thumbnail,
+        audioUrl: audio.audioUrl,
+        kind: "file",
+        durationHint: audio.seconds,
+        note: "Audio track from this YouTube video.",
       };
     }
-    return fromHit(
-      {
-        ...base,
-        canonicalUrl: watch,
-        thumbnail: meta.thumbnail,
-      },
-      best,
-      alt,
-      `YouTube does not serve a raw audio file. Matched “${meta.title}” to an official 30-second store preview.`,
-      meta.thumbnail,
-    );
+    return {
+      ...base,
+      canonicalUrl: watch,
+      title: audio.title,
+      artist: audio.artist,
+      thumbnail: audio.thumbnail,
+      error: audio.error,
+    };
   }
 
   const oembedUrl =

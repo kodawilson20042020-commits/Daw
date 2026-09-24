@@ -57,7 +57,6 @@ const STUDIO_PRESETS = [
 ];
 
 const DEMO_AUDIO_URLS = [
-  { name: 'YouTube', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
   { name: 'Spotify', url: 'https://open.spotify.com/track/4PTG3Z6ehGkBFwjybzWkR8' },
   { name: 'Apple', url: 'https://music.apple.com/us/album/never-gonna-give-you-up/1773292758?i=1773293184' }
 ];
@@ -781,7 +780,7 @@ export const SamplerPadView: React.FC = () => {
                 ))}
               </div>
               <p className="text-[10px] text-slate-500 leading-tight">
-                YouTube, Spotify, Apple Music, Deezer, and SoundCloud links resolve to an official preview URL. Direct .mp3 / .wav / .ogg files load in full. Streaming pages are not ripped.
+                YouTube links load that video’s own audio file when YouTube returns it. Spotify, Apple Music, and Deezer use their official preview. A blocked YouTube link is not replaced with a different song.
               </p>
             </div>
 
