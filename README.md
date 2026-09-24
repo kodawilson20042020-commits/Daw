@@ -103,7 +103,7 @@ Extends beyond 12-Tone Equal Temperament (12-TET) into historical, ethnic, and p
 - **Sample Ingestion Channels**:
   1. **Instant Studio Presets**: 16 procedurally synthesized samples (808s, kicks, snares, hats, claps, vocal chops, Rhodes, pluck, vinyl FX) with zero network latency.
   2. **URL Fetch with Proxy**: Two-tier ingestion attempting direct CORS fetch first, falling back to `/api/proxy-audio` on Node.js to bypass browser origin limits.
-  3. **Streaming Link Resolver** (`streamLinkResolver.ts`, `/api/resolve-link`): YouTube, Spotify, Apple Music, Deezer, SoundCloud, TikTok, Tidal, Bandcamp, and Amazon Music links resolve to a fetchable audio URL. Spotify, Apple, and Deezer use the platform's official 30-second preview. Other sites match the public title to a store preview. Direct audio URLs still load in full. Full-stream ripping is not performed.
+  3. **Streaming Link Resolver** (`streamLinkResolver.ts`, `/api/resolve-link`): YouTube links load that video's own audio file when YouTube returns it. Spotify, Apple Music, and Deezer use the official 30-second preview. SoundCloud and similar links match a public title to a store preview. A blocked YouTube link is not replaced with a different song. Direct audio URLs still load in full.
   4. **Microphone Recording**: Direct 2-second vocal or beatbox capture with automatic normalization.
   5. **File Upload**: Supports local `.wav`, `.mp3`, `.ogg`, and `.flac`.
 - **16-Levels Melodic Spread**: Chromatically pitches any selected sample across all 16 pads from $-8$ to $+7$ semitones.
