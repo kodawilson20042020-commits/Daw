@@ -481,20 +481,37 @@ export class AudioEngine {
       return this.loadPresetSample(presetCandidate, targetPadIndex);
     }
 
-    // Detect video/streaming sites that cannot provide raw audio in-browser
-    const lower = trimmed.toLowerCase();
-    if (
-      lower.includes('youtube.com') ||
-      lower.includes('youtu.be') ||
-      lower.includes('soundcloud.com') ||
-      lower.includes('spotify.com') ||
-      lower.includes('tiktok.com')
-    ) {
-      return {
-        success: false,
-        error:
-          'Streaming platforms (YouTube, SoundCloud, Spotify) serve DRM/web pages rather than direct raw audio files. Please use a direct .wav, .mp3, or .ogg link, upload an audio file, or select a studio sample preset below.'
-      };
+    let resolvedNote = '';
+    let resolvedSource = '';
+    let resolvedKind: 'file' | 'preview' | undefined;
+    let resolvedAudioUrl = '';
+    let resolvedTitle = '';
+
+    // Share links (YouTube, Spotify, Apple Music, Deezer, SoundCloud, …)
+    // are resolved to a fetchable audio URL before download.
+    if (!trimmed.startsWith('data:') && !trimmed.startsWith('blob:')) {
+      try {
+        const resolveRes = await fetch(`/api/resolve-link?url=${encodeURIComponent(trimmed)}`);
+        const resolved = await resolveRes.json().catch(() => null);
+        if (resolved?.ok && typeof resolved.audioUrl === 'string') {
+          resolvedNote = typeof resolved.note === 'string' ? resolved.note : '';
+          resolvedSource = typeof resolved.source === 'string' ? resolved.source : '';
+          resolvedKind = resolved.kind === 'preview' ? 'preview' : 'file';
+          resolvedAudioUrl = resolved.audioUrl;
+          const title = [resolved.artist, resolved.title].filter(Boolean).join(' - ');
+          if (title) resolvedTitle = title;
+          trimmed = resolved.audioUrl;
+        } else if (resolved && resolved.source && resolved.source !== 'direct' && resolved.source !== 'unknown') {
+          return {
+            success: false,
+            error: resolved.error || resolved.note || 'No playable audio for that link.',
+            source: resolved.source,
+            note: resolved.note
+          };
+        }
+      } catch {
+        // Resolver unreachable — fall through to a direct fetch for raw files.
+      }
     }
 
     // Auto-prefix protocol if missing and not data/blob
@@ -556,27 +573,36 @@ export class AudioEngine {
 
       // Extract a clean display name
       let cleanName = 'URL SAMPLE';
-      try {
-        const parsed = new URL(trimmed);
-        const segments = parsed.pathname.split('/').filter(Boolean);
-        if (segments.length > 0) {
-          const last = decodeURIComponent(segments[segments.length - 1]);
-          cleanName = last.replace(/\.[^/.]+$/, '').slice(0, 14).toUpperCase();
+      if (resolvedTitle) {
+        cleanName = resolvedTitle.slice(0, 18).toUpperCase();
+      } else {
+        try {
+          const parsed = new URL(trimmed);
+          const segments = parsed.pathname.split('/').filter(Boolean);
+          if (segments.length > 0) {
+            const last = decodeURIComponent(segments[segments.length - 1]);
+            cleanName = last.replace(/\.[^/.]+$/, '').slice(0, 14).toUpperCase();
+          }
+        } catch {
+          cleanName = 'URL SAMPLE';
         }
-      } catch {
-        cleanName = 'URL SAMPLE';
       }
 
       const bank = this.getActiveBank();
       if (bank && bank.padConfigs[targetPadIndex]) {
         bank.padConfigs[targetPadIndex].name = cleanName || 'URL SAMPLE';
-        bank.padConfigs[targetPadIndex].sub = `${audioBuffer.duration.toFixed(1)}s Custom`;
+        const tag = resolvedKind === 'preview' ? 'Preview' : 'File';
+        bank.padConfigs[targetPadIndex].sub = `${audioBuffer.duration.toFixed(1)}s ${tag}`;
       }
 
       return {
         success: true,
         sampleName: cleanName,
-        duration: audioBuffer.duration
+        duration: audioBuffer.duration,
+        source: resolvedSource || undefined,
+        kind: resolvedKind,
+        audioUrl: resolvedAudioUrl || trimmed,
+        note: resolvedNote || undefined
       };
     } catch {
       return {

@@ -57,9 +57,9 @@ const STUDIO_PRESETS = [
 ];
 
 const DEMO_AUDIO_URLS = [
-  { name: 'Studio Beep', url: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' },
-  { name: 'Water Droplet', url: 'https://actions.google.com/sounds/v1/water/water_droplet.ogg' },
-  { name: 'Camera Snap', url: 'https://actions.google.com/sounds/v1/foley/camera_snap.ogg' }
+  { name: 'YouTube', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+  { name: 'Spotify', url: 'https://open.spotify.com/track/4PTG3Z6ehGkBFwjybzWkR8' },
+  { name: 'Apple', url: 'https://music.apple.com/us/album/never-gonna-give-you-up/1773292758?i=1773293184' }
 ];
 
 export const SamplerPadView: React.FC = () => {
@@ -223,12 +223,14 @@ export const SamplerPadView: React.FC = () => {
     if (!targetUrl) return;
     setIsLoadingSample(true);
     setSampleFeedbackType('info');
-    setSampleFeedbackMsg('Fetching and decoding sample...');
+    setSampleFeedbackMsg('Resolving link and decoding audio...');
     const res = await engine.loadSampleFromUrl(targetUrl, selectedPadIndex);
     setIsLoadingSample(false);
     if (res.success) {
       setSampleFeedbackType('success');
-      setSampleFeedbackMsg(`Loaded "${res.sampleName || 'Sample'}" into Pad ${selectedPadIndex + 1} (${res.duration?.toFixed(2)}s)`);
+      setSampleFeedbackMsg(
+        `Loaded "${res.sampleName || 'Sample'}" into Pad ${selectedPadIndex + 1} (${res.duration?.toFixed(2)}s)${res.note ? ` — ${res.note}` : ''}${res.audioUrl ? `\n${res.audioUrl}` : ''}`
+      );
       setBanks([...engine.padBanks]);
       if (!customUrl) setSampleUrlInput('');
     } else {
@@ -740,12 +742,12 @@ export const SamplerPadView: React.FC = () => {
             <div className="space-y-2">
               <label className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
                 <Link className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Direct Audio URL (.mp3, .wav, .ogg):</span>
+                <span>Link — YouTube, Spotify, Apple Music, Deezer, SoundCloud, or a direct file:</span>
               </label>
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="https://.../sample.mp3 or try demo below"
+                  placeholder="YouTube, Spotify, Apple Music, or https://.../sample.mp3"
                   value={sampleUrlInput}
                   onChange={(e) => setSampleUrlInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -779,7 +781,7 @@ export const SamplerPadView: React.FC = () => {
                 ))}
               </div>
               <p className="text-[10px] text-slate-500 leading-tight">
-                Direct audio links are proxied server-side to bypass CORS restrictions. For YouTube/Spotify links, use direct audio files or studio presets due to streaming DRM.
+                YouTube, Spotify, Apple Music, Deezer, and SoundCloud links resolve to an official preview URL. Direct .mp3 / .wav / .ogg files load in full. Streaming pages are not ripped.
               </p>
             </div>
 
@@ -821,7 +823,7 @@ export const SamplerPadView: React.FC = () => {
             {/* Feedback Message */}
             {sampleFeedbackMsg && (
               <div
-                className={`p-2.5 rounded-xl border text-[11px] font-mono leading-relaxed transition-all ${
+                className={`p-2.5 rounded-xl border text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all transition-all ${
                   sampleFeedbackType === 'success'
                     ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
                     : sampleFeedbackType === 'error'

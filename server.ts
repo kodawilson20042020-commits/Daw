@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { isAllowedAudioFetch, resolveMediaLink } from './src/audio/streamLinkResolver.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +24,19 @@ async function startServer() {
     res.sendFile(zipPath);
   });
 
+  app.get('/api/resolve-link', async (req, res) => {
+    const raw = req.query.url;
+    if (!raw || typeof raw !== 'string') {
+      return res.status(400).json({ ok: false, error: 'Missing url.' });
+    }
+    try {
+      const result = await resolveMediaLink(raw);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || 'Could not resolve link.' });
+    }
+  });
+
   // Audio proxy endpoint: allows fetching audio files from remote hosts without browser CORS restrictions
   app.get('/api/proxy-audio', async (req, res) => {
     const audioUrl = req.query.url;
@@ -30,26 +44,13 @@ async function startServer() {
       return res.status(400).json({ error: 'Missing or invalid "url" query parameter' });
     }
 
+    const allowed = isAllowedAudioFetch(audioUrl);
+    if (!allowed.ok) {
+      return res.status(400).json({ error: allowed.error });
+    }
+
     try {
-      const parsedUrl = new URL(audioUrl);
-      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-        return res.status(400).json({ error: 'Invalid URL protocol. Only HTTP and HTTPS are supported.' });
-      }
-
-      const host = parsedUrl.hostname.toLowerCase();
-      if (
-        host.includes('youtube.com') ||
-        host.includes('youtu.be') ||
-        host.includes('soundcloud.com') ||
-        host.includes('spotify.com')
-      ) {
-        return res.status(400).json({
-          error:
-            'Streaming platforms (YouTube, SoundCloud, Spotify) do not serve raw audio files directly in-browser. Please use a direct .wav, .mp3, or .ogg link, or select a built-in studio sample preset.'
-        });
-      }
-
-      const response = await fetch(audioUrl, {
+      const response = await fetch(allowed.url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; AuraDSP/1.0; AudioEngine)',
           Accept: 'audio/*, application/octet-stream;q=0.9, */*;q=0.8'
@@ -71,6 +72,9 @@ async function startServer() {
       }
 
       const arrayBuffer = await response.arrayBuffer();
+      if (arrayBuffer.byteLength > 20 * 1024 * 1024) {
+        return res.status(413).json({ error: 'Audio file is larger than 20 MB.' });
+      }
       res.setHeader('Content-Type', contentType);
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');

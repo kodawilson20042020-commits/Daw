@@ -183,6 +183,10 @@ export interface LoadSampleResult {
   error?: string;
   sampleName?: string;
   duration?: number;
+  source?: string;
+  kind?: 'file' | 'preview';
+  audioUrl?: string;
+  note?: string;
 }
 
 export type SoundPackExportFormat = 'fl_studio' | 'bandlab' | 'garageband';
