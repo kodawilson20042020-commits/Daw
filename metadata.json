@@ -1,0 +1,6 @@
+{
+  "name": "AURA DSP Mobile Companion",
+  "description": "Professional mobile audio workstation with AudioWorklet zero-allocation DSP, 16 Pro Plugins & Instruments, Hardware-Fusion Engine, microtonal music theory, procedural navigation sound design, and the Reference Lab & System Tuner monitoring suite.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
